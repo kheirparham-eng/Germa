@@ -1,7 +1,10 @@
-name: Build Telegram Custom APK
+name: Build and Release Telegram APK
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -31,8 +34,29 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleAfatDebug --no-daemon --stacktrace
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      - name: Locate and Stage APK
+        id: stage_apk
+        run: |
+          # پیدا کردن فایل APK در هر کجای پوشه بیلد که ساخته شده باشد
+          APK_PATH=$(find TMessagesProj/build/outputs/apk -type f -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "❌ هیچ فایل APK یافت نشد!"
+            exit 1
+          fi
+          echo "فایل پیدا شد: $APK_PATH"
+          mkdir -p release_files
+          cp "$APK_PATH" release_files/Germa-Custom.apk
+          echo "apk_exists=true" >> $GITHUB_OUTPUT
+
+      - name: Publish GitHub Release
+        if: steps.stage_apk.outputs.apk_exists == 'true'
+        uses: softprops/action-gh-release@v2
         with:
-          name: Germa-Custom-APK
-          path: TMessagesProj/build/outputs/apk/afat/debug/*.apk
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Germa Custom APK Build #${{ github.run_number }}"
+          body: "این فایل به صورت خودکار توسط GitHub Actions بیلد شده است."
+          draft: false
+          prerelease: false
+          files: release_files/Germa-Custom.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
