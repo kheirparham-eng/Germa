@@ -142,6 +142,8 @@ import java.util.stream.Collectors;
 import me.vkryl.core.BitwiseUtils;
 
 public class MessagesController extends BaseController implements NotificationCenter.NotificationCenterDelegate {
+    private static final boolean GHOST_MODE = true;
+
 
     public int lastKnownSessionsCount;
     private final ConcurrentHashMap<Long, TLRPC.Chat> chats = new ConcurrentHashMap<>(100, 1.0f, 2);
@@ -10507,7 +10509,7 @@ public class MessagesController extends BaseController implements NotificationCe
         checkDeletingTask(false);
         checkReadTasks();
 
-        if (getUserConfig().isClientActivated()) {
+        if (getUserConfig().isClientActivated() && !GHOST_MODE) {
             if (!ignoreSetOnline && getConnectionsManager().getPauseTime() == 0 && ApplicationLoader.isScreenOn && !ApplicationLoader.mainInterfacePausedStageQueue) {
                 if (ApplicationLoader.mainInterfacePausedStageQueueTime != 0 && Math.abs(ApplicationLoader.mainInterfacePausedStageQueueTime - System.currentTimeMillis()) > 1000) {
                     if (statusSettingState != 1 && (lastStatusUpdateTime == 0 || Math.abs(System.currentTimeMillis() - lastStatusUpdateTime) >= 55000 || offlineSent)) {
@@ -10518,11 +10520,11 @@ public class MessagesController extends BaseController implements NotificationCe
                         }
 
                         TL_account.updateStatus req = new TL_account.updateStatus();
-                        req.offline = false;
+                        req.offline = true;
                         statusRequest = getConnectionsManager().sendRequest(req, (response, error) -> {
                             if (error == null) {
                                 lastStatusUpdateTime = System.currentTimeMillis();
-                                offlineSent = false;
+                                offlineSent = true;
                                 statusSettingState = 0;
                             } else {
                                 if (lastStatusUpdateTime != 0) {
@@ -14389,6 +14391,9 @@ public class MessagesController extends BaseController implements NotificationCe
         long dialogId = messageObject.getDialogId();
         getMessagesStorage().markMessagesContentAsRead(dialogId, arrayList, 0, 0);
         getNotificationCenter().postNotificationName(NotificationCenter.messagesReadContent, dialogId, arrayList);
+        if (GHOST_MODE) {
+            return;
+        }
         if (messageObject.getId() < 0) {
             markMessageAsRead(messageObject.getDialogId(), messageObject.messageOwner.random_id, Integer.MIN_VALUE);
         } else {
@@ -14417,6 +14422,9 @@ public class MessagesController extends BaseController implements NotificationCe
 
     public void markMentionMessageAsRead(int mid, long channelId, long did) {
         getMessagesStorage().markMentionMessageAsRead(-channelId, mid, did);
+        if (GHOST_MODE) {
+            return;
+        }
         if (channelId != 0) {
             TLRPC.TL_channels_readMessageContents req = new TLRPC.TL_channels_readMessageContents();
             req.channel = getInputChannel(channelId);
@@ -14464,6 +14472,12 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public void markMessageAsRead2(long dialogId, int mid, TLRPC.InputChannel inputChannel, int ttl, long taskId, boolean createDeleteTask) {
+        if (GHOST_MODE) {
+            if (taskId != 0) {
+                getMessagesStorage().removePendingTask(taskId);
+            }
+            return;
+        }
         if (mid == 0 || ttl < 0) {
             return;
         }
@@ -14527,6 +14541,9 @@ public class MessagesController extends BaseController implements NotificationCe
         if (!DialogObject.isEncryptedDialog(dialogId)) {
             return;
         }
+        if (GHOST_MODE) {
+            return;
+        }
         TLRPC.EncryptedChat chat = getEncryptedChat(DialogObject.getEncryptedChatId(dialogId));
         if (chat == null) {
             return;
@@ -14541,6 +14558,9 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     private void completeReadTask(ReadTask task) {
+        if (GHOST_MODE) {
+            return;
+        }
         if (task.replyId != 0 && task.monoForumPeerId == 0) {
             TLRPC.TL_messages_readDiscussion req = new TLRPC.TL_messages_readDiscussion();
             req.msg_id = (int) task.replyId;
@@ -14647,6 +14667,9 @@ public class MessagesController extends BaseController implements NotificationCe
             return;
         }
         getMessagesStorage().resetMentionsCount(dialogId, topicId, 0);
+        if (GHOST_MODE) {
+            return;
+        }
         TLRPC.TL_messages_readMentions req = new TLRPC.TL_messages_readMentions();
         req.peer = getInputPeer(dialogId);
         if (topicId != 0) {
@@ -14657,10 +14680,10 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public void markDialogAsRead(long dialogId, int maxPositiveId, int maxNegativeId, int maxDate, boolean popup, long threadId, int countDiff, boolean readNow, int scheduledCount) {
-        boolean createReadTask;
+    boolean createReadTask;
 
-        if (threadId != 0) {
-            createReadTask = maxPositiveId != Integer.MAX_VALUE;
+    if (threadId != 0) {
+        createReadTask = maxPositiveId != Integer.MAX_VALUE;
         } else {
             boolean countMessages = getNotificationsController().showBadgeMessages;
             if (!DialogObject.isEncryptedDialog(dialogId)) {
