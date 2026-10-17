@@ -32,18 +32,21 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleAfatDebug --no-daemon --stacktrace
+        run: |
+          ./gradlew :TMessagesProj:assembleAfatDebug --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m"
 
       - name: Locate and Stage APK
         id: stage_apk
         run: |
-          # پیدا کردن فایل APK در هر کجای پوشه بیلد که ساخته شده باشد
-          APK_PATH=$(find TMessagesProj/build/outputs/apk -type f -name "*.apk" | head -n 1)
+          echo "🔍 در حال جستجوی فایل‌های APK ساخته شده..."
+          find . -type f -name "*.apk"
+          
+          APK_PATH=$(find . -type f -name "*.apk" | grep -v "unaligned" | head -n 1)
           if [ -z "$APK_PATH" ]; then
-            echo "❌ هیچ فایل APK یافت نشد!"
+            echo "❌ خطا: فایل APK تولید نشد. خروجی مرحله بیلد را بررسی کنید."
             exit 1
           fi
-          echo "فایل پیدا شد: $APK_PATH"
+          echo "✅ فایل پیدا شد: $APK_PATH"
           mkdir -p release_files
           cp "$APK_PATH" release_files/Germa-Custom.apk
           echo "apk_exists=true" >> $GITHUB_OUTPUT
@@ -54,7 +57,7 @@ jobs:
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: "Germa Custom APK Build #${{ github.run_number }}"
-          body: "این فایل به صورت خودکار توسط GitHub Actions بیلد شده است."
+          body: "فایل APK سفارشی تلگرام"
           draft: false
           prerelease: false
           files: release_files/Germa-Custom.apk
