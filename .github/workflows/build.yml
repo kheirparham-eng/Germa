@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Repository with Submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -23,15 +23,27 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android NDK and CMake
+      - name: Install Android SDK 36, NDK 27 and CMake
         run: |
-          echo "y" | sudo ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.1.8937393" "cmake;3.22.1"
+          echo "y" | sudo ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
           yes | sudo ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses
 
-      - name: Inject Dummy Keys if Missing
+      - name: Generate Valid Keystore and Setup Configs
         run: |
-          # ساخت مقادیر پیش‌فرض برای جلوگیری از توقف گریدل روی کلیدهای تلگرام
           mkdir -p TMessagesProj/config
+          
+          # تولید خودکار یک کلید امضای معتبر بدون نیاز به کلیدهای نامشخص
+          keytool -genkey -v -keystore TMessagesProj/config/release.keystore \
+            -alias germa -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass 123456 -keypass 123456 \
+            -dname "CN=Germa, OU=App, O=Telegram, L=City, S=State, C=US"
+
+          # تنظیم مشخصات کلید در gradle.properties
+          echo "RELEASE_KEY_PASSWORD=123456" >> gradle.properties
+          echo "RELEASE_KEY_ALIAS=germa" >> gradle.properties
+          echo "RELEASE_STORE_PASSWORD=123456" >> gradle.properties
+
+          # تنظیم متغیرهای پایه تلگرام
           cat << 'EOF' > TMessagesProj/config/debug.properties
           APP_ID=6
           APP_HASH=eb06d4abfb49dc3eeb1aeb9890f104d9
@@ -40,7 +52,7 @@ jobs:
       - name: Grant Execute Permission to Gradlew
         run: chmod +x gradlew
 
-      - name: Build Debug APK
+      - name: Build Afat Debug APK
         run: |
           ./gradlew assembleAfatDebug --no-daemon --stacktrace 2>&1 | tee build_log.txt
 
@@ -56,22 +68,14 @@ jobs:
       - name: Locate and Stage APK
         id: stage_apk
         run: |
-          APK_PATH=$(find . -type f -name "*.apk" ! -name "*unaligned*" ! -name "*androidTest*" | head -n 1)
+          APK_PATH=$(find . -type f -name "*afat*debug*.apk" ! -name "*unaligned*" | head -n 1)
           if [ -z "$APK_PATH" ]; then
-            echo "❌ فایلی یافت نشد."
+            APK_PATH=$(find . -type f -name "*.apk" ! -name "*unaligned*" ! -name "*androidTest*" | head -n 1)
+          fi
+          if [ -z "$APK_PATH" ]; then
+            echo "❌ هیچ فایل APK یافت نشد."
             exit 1
           fi
+          echo "✅ فایل APK با موفقیت در این مسیر تولید شد: $APK_PATH"
           mkdir -p release_files
           cp "$APK_PATH" release_files/Germa-Custom.apk
-          echo "apk_exists=true" >> $GITHUB_OUTPUT
-
-      - name: Publish GitHub Release
-        if: steps.stage_apk.outputs.apk_exists == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "Germa Custom APK Build #${{ github.run_number }}"
-          body: "فایل خروجی تلگرام Germa"
-          files: release_files/Germa-Custom.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
